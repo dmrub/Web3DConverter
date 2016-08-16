@@ -1,0 +1,8 @@
+# Pip requirements file
+
+Flask
+itsdangerous
+six
+rocket
+requests
+fasteners

@@ -1,0 +1,6 @@
+*.pyc
+*~
+*.bak
+/.idea
+/instance
+/backup
