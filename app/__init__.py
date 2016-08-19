@@ -8,7 +8,8 @@ import subprocess
 import tempfile
 
 import requests
-from flask import Flask, render_template, jsonify, request, send_from_directory, abort, after_this_request
+from flask import Flask, redirect, url_for, render_template, jsonify, request, \
+     send_from_directory, abort, after_this_request
 from flask.json import JSONEncoder
 import six
 from six.moves.urllib.parse import urlparse
@@ -145,11 +146,19 @@ def pre_request():
     global FM
     FM.sync()
 
+HTTP_OK = 200
+HTTP_BAD_REQUEST = 400
+HTTP_INTERNAL_SERVER_ERROR = 500
+HTTP_NOT_IMPLEMENTED = 501
 
-def error_response(message, status_code=500):
+
+def error_response(message, status_code=HTTP_INTERNAL_SERVER_ERROR):
     response = jsonify({'message': message})
     response.status_code = status_code
     return response
+
+def bad_request(message):
+    return error_response(message=message, status_code=HTTP_BAD_REQUEST)
 
 
 class FileFormat(object):
@@ -275,6 +284,12 @@ def root():
                            OUTPUT_FORMATS=OUTPUT_FORMATS)
 
 
+@app.route("/viewer", methods=['GET'])
+def viewer():
+    return redirect(url_for('static', filename='WebGLViewer/index.html', **request.args))
+    #return redirect(url_for('static', filename='Online3DViewer/website/index.html'))
+
+
 @app.route("/api/hash/<hash>", methods=["GET"])
 def get_file_by_hash(hash):
     global FM
@@ -364,9 +379,9 @@ class ConversionError(Exception):
 @app.errorhandler(ConversionError)
 def conversion_error(error):
     if error.oserror is not None:
-        status = 500  # Internal Server Error
+        status = HTTP_INTERNAL_SERVER_ERROR
     else:
-        status = 400  # Bad Request
+        status = HTTP_BAD_REQUEST
     return error_response(error.message, status)
 
 
@@ -430,25 +445,25 @@ def convert(input_format_name, output_format_name):
         uri_path = urlparse(uri).path
     elif request.method == "POST":
         if not request.data:
-            return error_response("Data missing in POST request")
+            return error_response("Data missing in POST request", status_code=400)
         data = request.data
     else:
-        return error_response("Bad request")
+        return bad_request("Bad request")
 
     if input_format_name == 'auto' and uri_path:
         result = derive_format(uri_path)
         if result:
             input_format_name, input_format = result
         else:
-            return error_response('Could not derive input file format from URI {}'.format(uri))
+            return bad_request('Could not derive input file format from URI {}'.format(uri))
     else:
         input_format = FORMAT_INFO.get(input_format_name)
         if not input_format:
-            return error_response('Unsupported source format {}'.format(input_format_name))
+            return bad_request('Unsupported source format {}'.format(input_format_name))
 
     output_format = FORMAT_INFO.get(output_format_name)
     if not output_format:
-        return error_response('Unsupported destination format {}'.format(output_format_name))
+        return bad_request('Unsupported destination format {}'.format(output_format_name))
 
     get_hash = request.args.get('get_hash', None) in ('1', 'true')
 
@@ -468,7 +483,7 @@ def convert(input_format_name, output_format_name):
                 response = requests.get(uri, stream=True)
             except requests.RequestException as e:
                 logger.exception("HTTP Request Error")
-                return error_response("HTTP Request Error: {}".format(e))
+                return bad_request("HTTP Request Error: {}".format(e))
 
             try:
                 with input_file.open('wb') as file:
@@ -477,7 +492,7 @@ def convert(input_format_name, output_format_name):
                     file.flush()
             except requests.HTTPError as e:
                 logger.exception("HTTP Error")
-                return error_response("HTTP Error: {}".format(e))
+                return bad_request("HTTP Error: {}".format(e))
         elif data:
             with input_file.open('wb') as file:
                 file.write(data)
@@ -531,4 +546,4 @@ def convert(input_format_name, output_format_name):
     return error_response(
         message='Error: Conversion from {} format to {} format is unsupported'.format(input_format.name,
                                                                                       output_format.name),
-        status_code=501)
+        status_code=HTTP_NOT_IMPLEMENTED)

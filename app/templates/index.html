@@ -49,6 +49,22 @@
             padding-left: 10px;
             background: #f2f2f2
         }
+
+        .responsive-video {
+            position: relative;
+            padding-bottom: 56.25%;
+            padding-top: 60px; overflow: hidden;
+        }
+
+        .responsive-video iframe,
+        .responsive-video object,
+        .responsive-video embed {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
     </style>
 </head>
 
@@ -72,6 +88,7 @@
             <li class="active"><a data-toggle="tab" href="#home">Input by URI</a></li>
             <li><a data-toggle="tab" href="#menu1">Input by text</a></li>
             <li><a data-toggle="tab" href="#menu2">Output</a></li>
+            <li><a data-toggle="tab" href="#viewer">3D View</a></li>
             <li><a data-toggle="tab" href="#menu3">About</a></li>
         </ul>
 
@@ -123,6 +140,12 @@
 
                                     <div class="col-md-10">
                                         <button id="submit" name="submit" class="btn btn-info">Convert</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="col-md-2 control-label" for="view"></label>
+                                    <div class="col-md-10">
+                                        <button id="viewByGET" name="view" class="btn btn-info">View</button>
                                     </div>
                                 </div>
                             </fieldset>
@@ -180,8 +203,22 @@
                                         <button id="submit" name="submit" class="btn btn-info">Convert</button>
                                     </div>
                                 </div>
+
+                                <div class="form-group">
+                                    <label class="col-md-2 control-label" for="view"></label>
+                                    <div class="col-md-10">
+                                        <button id="viewByPOST" name="view" class="btn btn-info">View</button>
+                                    </div>
+                                </div>
+
                             </fieldset>
                         </form>
+                    </div>
+
+                    <div id="viewer" class="tab-pane fade"> <!-- responsive-video -->
+                        <div class="embed-responsive embed-responsive-4by3">
+                            <iframe id="viewer-iframe"></iframe>
+                        </div>
                     </div>
 
                     <div id="menu2" class="tab-pane fade">
@@ -233,7 +270,6 @@
 
     </div>
 </div>
-
 
 <script type="text/javascript">
     $("#exportFormatByURI").chainedTo($("#importFormatByURI"));
@@ -324,6 +360,79 @@
                     editor.refresh();
                 }}
         ).fail(errorHandler);
+    });
+
+
+    $( "#viewByGET" ).click(function() {
+        event.preventDefault();
+
+        var importFormat = $("#inputFormatByURI").val();
+        var exportFormat = $("#exportFormatByURI").val();
+        var inputURI = $("#inputUri").val();
+
+        $.get(
+                "api/convert/" + importFormat + "/dae?get_hash=true&uri=" + inputURI,
+                function (data) {
+                    if (data.hash) {
+
+                        $('#viewer-iframe').on('load', function () {
+                            //this.style.height=this.contentDocument.body.scrollHeight +'px';
+                        });
+                        $("#viewer-iframe").attr("src", "viewer?uri=../../api/hash/" + data.hash);
+
+                        $('.nav-tabs a[href="#viewer"]').tab('show');
+                        //var win = window.open("viewer?uri=../../api/hash/" + data.hash, '_blank');
+                        //win.focus();
+                        return;
+                    }
+
+                    var editor = $('#editor').data('CodeMirrorInstance');
+                    editor.setOption("mode", "text/plain");
+                    //if (exportFormat=="json-ld" || exportFormat=="rdf-json")
+                    //      editor.getDoc().setValue(JSON.stringify(data));
+                    //else
+                    editor.getDoc().setValue(data);
+                    editor.refresh();
+                }
+        ).fail(errorHandler);
+    });
+
+    $( "#viewByPOST" ).click(function() {
+        event.preventDefault();
+
+        var importFormat = $("#inputFormatByText").val();
+        var exportFormat = $("#exportFormatByText").val();
+
+        $.ajax({
+                url: "api/convert/" + importFormat + "/dae?get_hash=true",
+                method: "POST",
+                dataType: "json",
+                contentType: "text/plain",
+                data: $("#textarea").val(),
+                complete: function (data) {
+                    if (data.responseJSON && data.responseJSON.hash) {
+
+                        $('#viewer-iframe').on('load', function(){
+                            //this.style.height=this.contentDocument.body.scrollHeight +'px';
+                        });
+                        $("#viewer-iframe").attr("src", "viewer?uri=../../api/hash/" + data.responseJSON.hash);
+
+                        $('.nav-tabs a[href="#viewer"]').tab('show');
+                        //var win = window.open("viewer?uri=../../api/hash/" + data.hash, '_blank');
+                        //win.focus();
+                        return;
+                    }
+
+                    var editor = $('#editor').data('CodeMirrorInstance');
+                    editor.setOption("mode", "text/plain");
+                    //if (exportFormat=="json-ld" || exportFormat=="rdf-json")
+                    //      editor.getDoc().setValue(JSON.stringify(data));
+                    //else
+                    editor.getDoc().setValue(data);
+                    editor.refresh();
+                }}
+        ).fail(errorHandler);
+
     });
 </script>
 

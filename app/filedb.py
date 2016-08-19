@@ -1,3 +1,7 @@
+# This file is part of Web3DConverter. It is subject to the license terms in
+# the LICENSE file found in the top-level directory of this distribution.
+# You may not use this file except in compliance with the License.
+
 import fasteners
 import os
 import os.path
