@@ -21,6 +21,7 @@
     <script src="http://codemirror.net/mode/xml/xml.js"></script>
     <script src="https://codemirror.net/addon/display/autorefresh.js"></script>
     <script src="http://www.appelsiini.net/projects/chained/jquery.chained.min.js"></script>
+    <script src="{{ url_for('static', filename='WebGLViewer/js/jquery.ajax-progress.js') }}"></script>
 
     <style type="text/css">
         html, body {
@@ -268,6 +269,25 @@
           </div>
         </div>
 
+        <div id="progress-modal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <span class="glyphicon glyphicon-time" aria-hidden="true"></span>
+                        <h4 id="progress-modal-title" class="modal-title" style="display: inline;"></h4>
+                    </div>
+                    <div id="progress-modal-body" class="modal-body">
+                        <div class="progress">
+                            <div id="progress-modal-bar" class="progress-bar progress-bar-success progress-bar-striped active" role="progressbar" aria-valuenow="45" aria-valuemin="0" aria-valuemax="100" style="width: 45%">
+                                <span class="sr-only">45% Complete</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
     </div>
 </div>
 
@@ -275,11 +295,25 @@
     $("#exportFormatByURI").chainedTo($("#importFormatByURI"));
     $("#exportFormatByText").chainedTo($("#importFormatByText"));
 
+    var ProgressModal = ProgressModal || {
+        show: function(title, value) {
+            $('#progress-modal-title').html(title);
+            ProgressModal.update(value);
+            $('#progress-modal').modal('show');
+        },
+        update: function(value) {
+            $('#progress-modal-bar').css('width', value+'%').attr('aria-valuenow', value);
+        },
+        hide: function() {
+            $('#progress-modal').modal('hide');
+        }
+    };
+
     function alertModal(title, body) {
-      // Display error message to the user in a modal
-      $('#alert-modal-title').html(title);
-      $('#alert-modal-body').html(body);
-      $('#alert-modal').modal('show');
+        // Display error message to the user in a modal
+        $('#alert-modal-title').html(title);
+        $('#alert-modal-body').html(body);
+        $('#alert-modal').modal('show');
     }
 </script>
 
@@ -294,6 +328,7 @@
     $('#editor').data('CodeMirrorInstance', editor);
 
     function errorHandler(jqXHR, textStatus, errorThrown) {
+        ProgressModal.hide();
         console.log("Error: "+textStatus+" "+errorThrown);
         if (jqXHR.responseJSON && jqXHR.responseJSON.message) {
             var msg;
@@ -306,6 +341,17 @@
             alertModal("Status: "+textStatus, errorThrown);
     }
 
+    function progressHandler(e) {
+        //make sure we can compute the length
+        if(e.lengthComputable) {
+            //calculate the percentage loaded
+            var pct = (e.loaded / e.total) * 100;
+
+            ProgressModal.update(pct);
+        } else {
+            ProgressModal.update(40);
+        }
+    }
 
     $("#convertByGET").submit(function (event) {
         event.preventDefault();
@@ -314,9 +360,13 @@
         var exportFormat = $("#exportFormatByURI").val();
         var inputURI = $("#inputUri").val();
 
+
+        ProgressModal.show("Converting URI", 1);
+
         $.get(
                 "api/convert/" + importFormat + "/" + exportFormat + "?get_hash=true&uri=" + inputURI,
                 function (data) {
+                    ProgressModal.hide();
                     if (data.hash) {
                         window.location = "api/hash/" + data.hash;
                         return;
@@ -339,6 +389,8 @@
         var importFormat = $("#inputFormatByText").val();
         var exportFormat = $("#exportFormatByText").val();
 
+        ProgressModal.show("Converting text", 1);
+
         $.ajax({
                 url: "api/convert/" + importFormat + "/" + exportFormat + "?get_hash=true",
                 method: "POST",
@@ -346,6 +398,7 @@
                 contentType: "text/plain",
                 data: $("#textarea").val(),
                 complete: function (data) {
+                    ProgressModal.hide();
                     if (data.responseJSON && data.responseJSON.hash) {
                         window.location = "api/hash/" + data.responseJSON.hash;
                         return;
@@ -358,7 +411,9 @@
                     //else
                     editor.getDoc().setValue(data.responseText);
                     editor.refresh();
-                }}
+                },
+                progress: progressHandler
+            }
         ).fail(errorHandler);
     });
 
@@ -370,9 +425,12 @@
         var exportFormat = $("#exportFormatByURI").val();
         var inputURI = $("#inputUri").val();
 
+        ProgressModal.show("Converting to viewable format", 1);
+
         $.get(
                 "api/convert/" + importFormat + "/dae?get_hash=true&uri=" + inputURI,
                 function (data) {
+                    ProgressModal.hide();
                     if (data.hash) {
 
                         $('#viewer-iframe').on('load', function () {
@@ -403,6 +461,8 @@
         var importFormat = $("#inputFormatByText").val();
         var exportFormat = $("#exportFormatByText").val();
 
+        ProgressModal.show("Converting to viewable format", 1);
+
         $.ajax({
                 url: "api/convert/" + importFormat + "/dae?get_hash=true",
                 method: "POST",
@@ -410,6 +470,8 @@
                 contentType: "text/plain",
                 data: $("#textarea").val(),
                 complete: function (data) {
+                    ProgressModal.hide();
+
                     if (data.responseJSON && data.responseJSON.hash) {
 
                         $('#viewer-iframe').on('load', function(){
@@ -430,7 +492,9 @@
                     //else
                     editor.getDoc().setValue(data);
                     editor.refresh();
-                }}
+                },
+                progress: progressHandler
+            }
         ).fail(errorHandler);
 
     });
