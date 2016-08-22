@@ -4,28 +4,17 @@
  */
 
 
-if ( ! Detector.webgl ) {
+if (!Detector.webgl) {
     Detector.addGetWebGLMessage();
 }
 
-var orbitControls = null;
-var container, stats;
-var camera, scene, renderer, objects;
-var clock = new THREE.Clock();
+var Viewer = Viewer || {};
 
-// init scene
-init();
+var requestAnimationFrame = window.requestAnimationFrame || window.mozRequestAnimationFrame ||
+    window.webkitRequestAnimationFrame || window.msRequestAnimationFrame;
 
-var onProgress = function ( xhr ) {
-    if ( xhr.lengthComputable ) {
-        var percentComplete = xhr.loaded / xhr.total * 100;
-        console.log( Math.round(percentComplete, 2) + '% downloaded' );
-    }
-};
 
-var onError = function ( xhr ) {
-};
-
+var cancelAnimationFrame = window.cancelAnimationFrame || window.mozCancelAnimationFrame;
 
 // Load jeep model using the AssimpJSONLoader
 //			var loader1 = new THREE.AssimpJSONLoader();
@@ -36,22 +25,36 @@ var onError = function ( xhr ) {
 //
 //			}, onProgress, onError );
 
+function loadCollada(scene, uri, options) {
 
-var loader = new THREE.ColladaLoader();
-loader.options.convertUpAxis = true;
+    var options = options || {};
 
-var queryParams = URI.parseQuery(window.location.search);
-if (queryParams.uri) {
-    console.log("Loading "+queryParams.uri);
-    loader.load( queryParams.uri, function ( collada ) {
+    var onProgress = options.onProgress || function (xhr) {
+            if (xhr.lengthComputable) {
+                var percentComplete = xhr.loaded / xhr.total * 100;
+                console.log(Math.round(percentComplete, 2) + '% downloaded');
+            }
+        };
+
+    var onError = options.onError || function (xhr) {
+        };
+
+    var loader = new THREE.ColladaLoader();
+    loader.options.convertUpAxis = true;
+
+    console.log("Loading " + uri);
+    loader.load(uri, function (collada) {
+
+        if (options.onLoad)
+            options.onLoad(collada);
 
         dae = collada.scene;
 
-        dae.traverse( function ( child ) {
+        dae.traverse(function (child) {
 
-            if ( child instanceof THREE.SkinnedMesh ) {
+            if (child instanceof THREE.SkinnedMesh) {
 
-                var animation = new THREE.Animation( child, child.geometry.animation );
+                var animation = new THREE.Animation(child, child.geometry.animation);
                 animation.play();
 
             }
@@ -61,93 +64,109 @@ if (queryParams.uri) {
         dae.scale.x = dae.scale.y = dae.scale.z = 1;
         dae.updateMatrix();
 
+        var box = new THREE.Box3().setFromObject(dae);
+
         // Add loaded scene
 
-        scene.add( dae );
+        scene.add(dae);
 
-    }, onProgress, onError );
+    }, options.onProgress, options.onError);
 }
 
+function createGrid(scene, size, step) {
+    var geometry = new THREE.Geometry();
+    var material = new THREE.LineBasicMaterial({color: 0x303030});
 
-animate();
+    for (var i = -size; i <= size; i += step) {
 
-function init() {
+        geometry.vertices.push(new THREE.Vector3(-size, -0.04, i));
+        geometry.vertices.push(new THREE.Vector3(size, -0.04, i));
 
-    container = document.createElement( 'div' );
-    document.body.appendChild( container );
+        geometry.vertices.push(new THREE.Vector3(i, -0.04, -size));
+        geometry.vertices.push(new THREE.Vector3(i, -0.04, size));
 
-    camera = new THREE.PerspectiveCamera( 50, window.innerWidth / window.innerHeight, 1, 2000 );
-    camera.position.set( 2, 4, 5 );
+    }
 
-    scene = new THREE.Scene();
+    var line = new THREE.LineSegments(geometry, material);
+    scene.add(line);
+}
+
+Viewer.init = function () {
+
+    var clock = new THREE.Clock();
+
+    var container = document.createElement('div');
+    document.body.appendChild(container);
+
+    var camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 2000);
+    camera.position.set(2, 4, 5);
+
+    var scene = new THREE.Scene();
     //scene.fog = new THREE.FogExp2( 0x000000, 0.035 );
 
     // Grid
 
     var size = 14, step = 1;
 
-    var geometry = new THREE.Geometry();
-    var material = new THREE.LineBasicMaterial( { color: 0x303030 } );
-
-    for ( var i = - size; i <= size; i += step ) {
-
-        geometry.vertices.push( new THREE.Vector3( - size, - 0.04, i ) );
-        geometry.vertices.push( new THREE.Vector3(   size, - 0.04, i ) );
-
-        geometry.vertices.push( new THREE.Vector3( i, - 0.04, - size ) );
-        geometry.vertices.push( new THREE.Vector3( i, - 0.04,   size ) );
-
-    }
-
-    var line = new THREE.LineSegments( geometry, material );
-    scene.add( line );
-
+    createGrid(scene, size, step);
 
     // Lights
-    scene.add( new THREE.AmbientLight( 0xcccccc ) );
+    scene.add(new THREE.AmbientLight(0xcccccc));
 
-    var directionalLight = new THREE.DirectionalLight( 0xeeeeee );
+    var directionalLight = new THREE.DirectionalLight(0xeeeeee);
     directionalLight.position.x = Math.random() - 0.5;
     directionalLight.position.y = Math.random();
     directionalLight.position.z = Math.random() - 0.5;
     directionalLight.position.normalize();
-    scene.add( directionalLight );
+    scene.add(directionalLight);
 
     // Renderer
-    renderer = new THREE.WebGLRenderer();
-    renderer.setPixelRatio( window.devicePixelRatio );
-    renderer.setSize( window.innerWidth, window.innerHeight );
-    container.appendChild( renderer.domElement );
+    var renderer = new THREE.WebGLRenderer();
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    container.appendChild(renderer.domElement);
 
     // Stats
-    stats = new Stats();
-    container.appendChild( stats.dom );
+    var stats = new Stats();
+    container.appendChild(stats.dom);
 
     // Events
-    window.addEventListener( 'resize', onWindowResize, false );
+    window.addEventListener('resize', Viewer.onWindowResize, false);
 
-    orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
+    var orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
+
+    Viewer.orbitControls = orbitControls;
+    Viewer.container = container;
+    Viewer.stats = stats;
+    Viewer.camera = camera;
+    Viewer.scene = scene;
+    Viewer.renderer = renderer;
+    Viewer.clock = clock;
+}
+
+Viewer.loadCollada = function(uri, options) {
+    return loadCollada(Viewer.scene, uri, options);
 }
 
 //
 
-function onWindowResize( event ) {
-    renderer.setSize( window.innerWidth, window.innerHeight );
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
+Viewer.onWindowResize = function (event) {
+    Viewer.renderer.setSize(window.innerWidth, window.innerHeight);
+    Viewer.camera.aspect = window.innerWidth / window.innerHeight;
+    Viewer.camera.updateProjectionMatrix();
 }
 
 //
 
-function animate() {
-    requestAnimationFrame( animate );
-    orbitControls.update();
-    render();
-    stats.update();
+Viewer.animate = function() {
+    requestAnimationFrame(Viewer.animate);
+    Viewer.orbitControls.update();
+    Viewer.render();
+    Viewer.stats.update();
 }
 
 
-function render() {
-    THREE.AnimationHandler.update( clock.getDelta() );
-    renderer.render( scene, camera );
+Viewer.render = function() {
+    THREE.AnimationHandler.update(Viewer.clock.getDelta());
+    Viewer.renderer.render(Viewer.scene, Viewer.camera);
 }

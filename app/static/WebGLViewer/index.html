@@ -1,55 +1,146 @@
 <!DOCTYPE html>
 <html lang="en">
-	<head>
-		<title>three.js webgl - Open Asset Import Library (assimp) / assimp2json</title>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-		<style>
-			body {
-				font-family: Monospace;
-				background-color: #000000;
-				margin: 0px;
-				overflow: hidden;
-			}
+<head>
+    <title>three.js webgl - Open Asset Import Library (assimp) / assimp2json</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
+    <style>
+        body {
+            font-family: Monospace;
+            background-color: #000000;
+            margin: 0px;
+            overflow: hidden;
+        }
 
-			#info {
-				color: #fff;
-				position: absolute;
-				top: 10px;
-				width: 100%;
-				text-align: center;
-				z-index: 100;
-				display:block;
+        #info {
+            color: #fff;
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            display: block;
 
-			}
+        }
 
-			a { color: red }
-		</style>
-	</head>
+        a {
+            color: red
+        }
+    </style>
+</head>
 
-	<body>
-		<div id="info">
-			<a href="http://threejs.org" target="_blank">three.js</a> - Three.js 3D Viewer
-		</div>
+<body>
+<div id="info">
+    <a href="http://threejs.org" target="_blank">three.js</a> - Three.js 3D Viewer
+</div>
 
-        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.2/jquery.min.js"></script>
-        <script src="js/URI.js"></script>
-		<script src="js/three.js"></script>
+<div id="alert-modal" class="modal fade">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header alert alert-danger" role="alert">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span
+                        aria-hidden="true">&times;</span></button>
+                <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span>
+                <span class="sr-only">Error:</span>&nbsp;
+                <h4 id="alert-modal-title" class="modal-title" style="display: inline;"></h4>
+            </div>
+            <div id="alert-modal-body" class="modal-body"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 
-        <!-- Collada Loader -->
-        <script src="js/loaders/collada/Animation.js"></script>
-        <script src="js/loaders/collada/AnimationHandler.js"></script>
-        <script src="js/loaders/collada/KeyFrameAnimation.js"></script>
-        <script src="js/loaders/ColladaLoader.js"></script>
+<div id="progress-modal" class="modal fade" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="glyphicon glyphicon-time" aria-hidden="true"></span>
+                <h4 id="progress-modal-title" class="modal-title" style="display: inline;"></h4>
+            </div>
+            <div id="progress-modal-body" class="modal-body">
+                <div class="progress">
+                    <div id="progress-modal-bar" class="progress-bar progress-bar-success progress-bar-striped active"
+                         role="progressbar" aria-valuenow="45" aria-valuemin="0" aria-valuemax="100" style="width: 45%">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
-        <!-- Assimp Loader -->
-        <script src="js/loaders/AssimpJSONLoader.js"></script>
 
-        <script src="js/controls/OrbitControls.js"></script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.2/jquery.min.js"></script>
+<script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+
+<script src="js/URI.js"></script>
+<script src="js/three.js"></script>
+
+<!-- Collada Loader -->
+<script src="js/loaders/collada/Animation.js"></script>
+<script src="js/loaders/collada/AnimationHandler.js"></script>
+<script src="js/loaders/collada/KeyFrameAnimation.js"></script>
+<script src="js/loaders/ColladaLoader.js"></script>
+
+<!-- Assimp Loader -->
+<script src="js/loaders/AssimpJSONLoader.js"></script>
+
+<script src="js/controls/OrbitControls.js"></script>
 
 
-		<script src="js/Detector.js"></script>
-		<script src="js/libs/stats.min.js"></script>
-		<script src="js/Viewer.js"></script>
-	</body>
+<script src="js/Detector.js"></script>
+<script src="js/libs/stats.min.js"></script>
+<script src="js/Viewer.js"></script>
+<script type="text/javascript">
+
+    Viewer.ProgressModal = {
+        show: function (title, value) {
+            $('#progress-modal-title').html(title);
+            Viewer.ProgressModal.update(value);
+            $('#progress-modal').modal('show');
+        },
+        update: function (value) {
+            $('#progress-modal-bar').css('width', value + '%').attr('aria-valuenow', value);
+        },
+        hide: function () {
+            $('#progress-modal').modal('hide');
+        }
+    };
+
+    Viewer.alertModal = function (title, body) {
+        // Display error message to the user in a modal
+        $('#alert-modal-title').html(title);
+        $('#alert-modal-body').html(body);
+        $('#alert-modal').modal('show');
+    }
+
+    // init scene
+    Viewer.init();
+
+    var queryParams = URI.parseQuery(window.location.search);
+    if (queryParams.uri) {
+        Viewer.ProgressModal.show("Loading scene ...", 4);
+        Viewer.loadCollada(queryParams.uri, {
+            onLoad: function (collada) {
+                Viewer.ProgressModal.hide();
+            },
+            onProgress: function (xhr) {
+                if (xhr.loaded && xhr.total) {
+                    var percentComplete = xhr.loaded / xhr.total * 100;
+                    Viewer.ProgressModal.show("Loading scene ...", percentComplete);
+                    console.log(Math.round(percentComplete, 2) + '% downloaded');
+                }
+            },
+            onError: function (error) {
+                Viewer.ProgressModal.hide();
+                Viewer.alertModal("Could not load URL", "URL: " + error.url);
+            }
+        });
+    }
+
+    Viewer.animate();
+</script>
+</body>
 </html>

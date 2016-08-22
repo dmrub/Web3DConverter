@@ -50,22 +50,6 @@
             padding-left: 10px;
             background: #f2f2f2
         }
-
-        .responsive-video {
-            position: relative;
-            padding-bottom: 56.25%;
-            padding-top: 60px; overflow: hidden;
-        }
-
-        .responsive-video iframe,
-        .responsive-video object,
-        .responsive-video embed {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-        }
     </style>
 </head>
 
@@ -137,16 +121,17 @@
                                     </div>
                                 </div>
                                 <div class="form-group">
-                                    <label class="col-md-2 control-label" for="submit"></label>
+                                    <label class="col-md-2 control-label" for="submitByGET"></label>
 
                                     <div class="col-md-10">
-                                        <button id="submit" name="submit" class="btn btn-info">Convert</button>
+                                        <button id="submitByGET" name="submit" class="btn btn-info">Convert</button>
                                     </div>
                                 </div>
                                 <div class="form-group">
-                                    <label class="col-md-2 control-label" for="view"></label>
+                                    <label class="col-md-2 control-label" for="viewByGET"></label>
+
                                     <div class="col-md-10">
-                                        <button id="viewByGET" name="view" class="btn btn-info">View</button>
+                                        <button id="viewByGET" type="submit" name="view" class="btn btn-info">View</button>
                                     </div>
                                 </div>
                             </fieldset>
@@ -198,17 +183,17 @@
                                     </div>
                                 </div>
                                 <div class="form-group">
-                                    <label class="col-md-2 control-label" for="submit"></label>
+                                    <label class="col-md-2 control-label" for="submitByPOST"></label>
 
                                     <div class="col-md-10">
-                                        <button id="submit" name="submit" class="btn btn-info">Convert</button>
+                                        <button id="submitByPOST" name="submit" class="btn btn-info">Convert</button>
                                     </div>
                                 </div>
 
                                 <div class="form-group">
-                                    <label class="col-md-2 control-label" for="view"></label>
+                                    <label class="col-md-2 control-label" for="viewByPOST"></label>
                                     <div class="col-md-10">
-                                        <button id="viewByPOST" name="view" class="btn btn-info">View</button>
+                                        <button id="viewByPOST" type="submit" name="view" class="btn btn-info">View</button>
                                     </div>
                                 </div>
 
@@ -353,32 +338,74 @@
         }
     }
 
+    function viewCompleteHandler(data) {
+        ProgressModal.hide();
+        if (data.responseJSON && data.responseJSON.hash) {
+
+            $('#viewer-iframe').on('load', function () {
+                //this.style.height=this.contentDocument.body.scrollHeight +'px';
+            });
+            $("#viewer-iframe").attr("src", "viewer?uri=../../api/hash/" + data.responseJSON.hash);
+
+            $('.nav-tabs a[href="#viewer"]').tab('show');
+            //var win = window.open("viewer?uri=../../api/hash/" + data.hash, '_blank');
+            //win.focus();
+            return;
+        }
+
+        var editor = $('#editor').data('CodeMirrorInstance');
+        editor.setOption("mode", "text/plain");
+        //if (exportFormat=="json-ld" || exportFormat=="rdf-json")
+        //      editor.getDoc().setValue(JSON.stringify(data));
+        //else
+        editor.getDoc().setValue(data);
+        editor.refresh();
+    }
+
+    function convertCompleteHandler(data) {
+        ProgressModal.hide();
+        if (data.responseJSON && data.responseJSON.hash) {
+            window.location = "api/hash/" + data.responseJSON.hash;
+            return;
+        }
+        $('.nav-tabs a[href="#menu2"]').tab('show');
+        var editor = $('#editor').data('CodeMirrorInstance');
+        editor.setOption("mode", "text/plain");
+        //if (exportFormat=="json-ld" || exportFormat=="rdf-json")
+        //      editor.getDoc().setValue(JSON.stringify(data));
+        //else
+        editor.getDoc().setValue(data);
+        editor.refresh();
+    }
+
+    var actionMode = null;
+
     $("#convertByGET").submit(function (event) {
         event.preventDefault();
+
+        var doViewScene = actionMode === "view";
+        actionMode = null;
 
         var importFormat = $("#inputFormatByURI").val();
         var exportFormat = $("#exportFormatByURI").val();
         var inputURI = $("#inputUri").val();
 
+        var completeHandler;
+        if (doViewScene) {
+            ProgressModal.show("Converting to viewable format", 4);
+            exportFormat = "dae";
+            completeHandler = viewCompleteHandler;
+        } else {
+            ProgressModal.show("Converting URI", 4);
+            completeHandler = convertCompleteHandler;
+        }
 
-        ProgressModal.show("Converting URI", 1);
-
-        $.get(
-                "api/convert/" + importFormat + "/" + exportFormat + "?get_hash=true&uri=" + inputURI,
-                function (data) {
-                    ProgressModal.hide();
-                    if (data.hash) {
-                        window.location = "api/hash/" + data.hash;
-                        return;
-                    }
-                    $('.nav-tabs a[href="#menu2"]').tab('show');
-                    var editor = $('#editor').data('CodeMirrorInstance');
-                    editor.setOption("mode", "text/plain");
-                    //if (exportFormat=="json-ld" || exportFormat=="rdf-json")
-                    //      editor.getDoc().setValue(JSON.stringify(data));
-                    //else
-                    editor.getDoc().setValue(data);
-                    editor.refresh();
+        $.ajax({
+                    url: "api/convert/" + importFormat + "/" + exportFormat + "?get_hash=true&uri=" + inputURI,
+                    method: "GET",
+                    dataType: "json",
+                    complete: completeHandler,
+                    progress: progressHandler
                 }
         ).fail(errorHandler);
     });
@@ -386,10 +413,21 @@
     $("#convertByPOST").submit(function (event) {
         event.preventDefault();
 
+        var doViewScene = actionMode === "view";
+        actionMode = null;
+
         var importFormat = $("#inputFormatByText").val();
         var exportFormat = $("#exportFormatByText").val();
 
-        ProgressModal.show("Converting text", 1);
+        var completeHandler;
+        if (doViewScene) {
+            ProgressModal.show("Converting to viewable format", 4);
+            exportFormat = "dae";
+            completeHandler = viewCompleteHandler;
+        } else {
+            ProgressModal.show("Converting text", 4);
+            completeHandler = convertCompleteHandler;
+        }
 
         $.ajax({
                 url: "api/convert/" + importFormat + "/" + exportFormat + "?get_hash=true",
@@ -397,106 +435,21 @@
                 dataType: "json",
                 contentType: "text/plain",
                 data: $("#textarea").val(),
-                complete: function (data) {
-                    ProgressModal.hide();
-                    if (data.responseJSON && data.responseJSON.hash) {
-                        window.location = "api/hash/" + data.responseJSON.hash;
-                        return;
-                    }
-                    $('.nav-tabs a[href="#menu2"]').tab('show');
-                    var editor = $('#editor').data('CodeMirrorInstance');
-                    editor.setOption("mode", "text/plain");
-                    //if (exportFormat=="json-ld" || exportFormat=="rdf-json")
-                    //      editor.getDoc().setValue(JSON.stringify(data));
-                    //else
-                    editor.getDoc().setValue(data.responseText);
-                    editor.refresh();
-                },
+                complete: completeHandler,
                 progress: progressHandler
             }
         ).fail(errorHandler);
     });
 
 
-    $( "#viewByGET" ).click(function() {
-        event.preventDefault();
-
-        var importFormat = $("#inputFormatByURI").val();
-        var exportFormat = $("#exportFormatByURI").val();
-        var inputURI = $("#inputUri").val();
-
-        ProgressModal.show("Converting to viewable format", 1);
-
-        $.get(
-                "api/convert/" + importFormat + "/dae?get_hash=true&uri=" + inputURI,
-                function (data) {
-                    ProgressModal.hide();
-                    if (data.hash) {
-
-                        $('#viewer-iframe').on('load', function () {
-                            //this.style.height=this.contentDocument.body.scrollHeight +'px';
-                        });
-                        $("#viewer-iframe").attr("src", "viewer?uri=../../api/hash/" + data.hash);
-
-                        $('.nav-tabs a[href="#viewer"]').tab('show');
-                        //var win = window.open("viewer?uri=../../api/hash/" + data.hash, '_blank');
-                        //win.focus();
-                        return;
-                    }
-
-                    var editor = $('#editor').data('CodeMirrorInstance');
-                    editor.setOption("mode", "text/plain");
-                    //if (exportFormat=="json-ld" || exportFormat=="rdf-json")
-                    //      editor.getDoc().setValue(JSON.stringify(data));
-                    //else
-                    editor.getDoc().setValue(data);
-                    editor.refresh();
-                }
-        ).fail(errorHandler);
+    $( "#viewByGET" ).click(function(event) {
+        actionMode = "view";
+        //$("#convertByGET").submit();
     });
 
-    $( "#viewByPOST" ).click(function() {
-        event.preventDefault();
-
-        var importFormat = $("#inputFormatByText").val();
-        var exportFormat = $("#exportFormatByText").val();
-
-        ProgressModal.show("Converting to viewable format", 1);
-
-        $.ajax({
-                url: "api/convert/" + importFormat + "/dae?get_hash=true",
-                method: "POST",
-                dataType: "json",
-                contentType: "text/plain",
-                data: $("#textarea").val(),
-                complete: function (data) {
-                    ProgressModal.hide();
-
-                    if (data.responseJSON && data.responseJSON.hash) {
-
-                        $('#viewer-iframe').on('load', function(){
-                            //this.style.height=this.contentDocument.body.scrollHeight +'px';
-                        });
-                        $("#viewer-iframe").attr("src", "viewer?uri=../../api/hash/" + data.responseJSON.hash);
-
-                        $('.nav-tabs a[href="#viewer"]').tab('show');
-                        //var win = window.open("viewer?uri=../../api/hash/" + data.hash, '_blank');
-                        //win.focus();
-                        return;
-                    }
-
-                    var editor = $('#editor').data('CodeMirrorInstance');
-                    editor.setOption("mode", "text/plain");
-                    //if (exportFormat=="json-ld" || exportFormat=="rdf-json")
-                    //      editor.getDoc().setValue(JSON.stringify(data));
-                    //else
-                    editor.getDoc().setValue(data);
-                    editor.refresh();
-                },
-                progress: progressHandler
-            }
-        ).fail(errorHandler);
-
+    $( "#viewByPOST" ).click(function(event) {
+        actionMode = "view";
+        //$("#convertByPOST").submit();
     });
 </script>
 
