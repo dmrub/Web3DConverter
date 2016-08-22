@@ -19,7 +19,7 @@ COPY LDRConverter /usr/src/LDRConverter
 
 WORKDIR /usr/src/LDRConverter
 
-RUN cmake CMakeLists.txt -G 'Unix Makefiles' && make && make install
+RUN cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr CMakeLists.txt -G 'Unix Makefiles' && make && make install
 
 # Download ldraw to /usr/share/ldraw
 
@@ -38,7 +38,7 @@ COPY assimp /usr/src/assimp
 
 WORKDIR /usr/src/assimp
 
-RUN cmake CMakeLists.txt -G 'Unix Makefiles' && make && make install
+RUN cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr CMakeLists.txt -G 'Unix Makefiles' && make && make install
 
 # Build Web LDR Converter
 
