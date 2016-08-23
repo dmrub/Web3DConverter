@@ -122,7 +122,9 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--log-to-console", action="store_true",
                         help="output log to console", default=False)
     parser.add_argument("-p", "--port", action="store", default=8080, type=int,
-                        help="specify server port")
+                        help="server port")
+    parser.add_argument("--host", action="store", default="0.0.0.0",
+                        help="server host")
     parser.add_argument("--use-debugger", action="store_true",
                         help="enable debugger")
     parser.add_argument("--use-reloader", action="store_true",
@@ -188,7 +190,7 @@ if __name__ == "__main__":
         if args.use_wsgiref:
             from wsgiref.simple_server import make_server
 
-            srv = make_server('0.0.0.0', args.port, app.app.wsgi_app)
+            srv = make_server(args.host, args.port, app.app.wsgi_app)
             srv.serve_forever()
         elif args.use_rocket:
             from rocket import Rocket
@@ -199,7 +201,7 @@ if __name__ == "__main__":
             log.addHandler(log_handler)
 
             # Set the configuration of the web server
-            server = Rocket(interfaces=('0.0.0.0', args.port), method='wsgi',
+            server = Rocket(interfaces=(args.host, args.port), method='wsgi',
                             app_info={"wsgi_app": app.app.wsgi_app})
 
 
@@ -229,6 +231,7 @@ if __name__ == "__main__":
                     print('dropped {} {}'.format(error, environ))
 
             app.app.run(debug=args.debug,
+                        host=args.host,
                         port=args.port,
                         use_debugger=args.use_debugger,
                         use_reloader=args.use_reloader,
