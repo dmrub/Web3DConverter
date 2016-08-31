@@ -1,4 +1,6 @@
 # Initialization
+from __future__ import print_function
+import sys
 import hashlib
 import mimetypes
 import os
@@ -9,7 +11,7 @@ import tempfile
 
 import requests
 from flask import Flask, redirect, url_for, render_template, jsonify, request, \
-     send_from_directory, abort, after_this_request
+    send_from_directory, abort, after_this_request
 from flask.json import JSONEncoder
 import six
 from six.moves.urllib.parse import urlparse
@@ -39,6 +41,7 @@ extensions = {
 
 def run_command(command, env=None, cwd=None):
     """returns triple (returncode, stdout, stderr)"""
+    logger.info('Run command {} in env {}, cwd {}'.format(command, env, cwd))
     myenv = {}
     if env is not None:
         for k, v in env.items():
@@ -65,6 +68,57 @@ def run_command(command, env=None, cwd=None):
     p.stderr.close()
     status = p.wait()
 
+    logger.info('Command {} returned code: {}'.format(command, status))
+    return status, out, err
+
+
+def run_command2(command, env=None, cwd=None, get_stdout=True, get_stderr=True):
+    """returns triple (returncode, stdout, stderr)
+    if get_stdout is False stdout tuple element will be set to None
+    if get_stderr is False stderr tuple element will be set to None
+    """
+    logger.info('Run command {} in env {}, cwd {}'.format(command, env, cwd))
+
+    myenv = {}
+    if env is not None:
+        for k, v in env.items():
+            myenv[str(k)] = str(v)
+    env = myenv
+
+    with tempfile.TemporaryFile(suffix='stdout') as tmp_stdout:
+        with tempfile.TemporaryFile(suffix='stderr') as tmp_stderr:
+            if isinstance(command, list) or isinstance(command, tuple):
+                p = subprocess.Popen(command,
+                                     stdout=tmp_stdout,
+                                     stderr=tmp_stderr,
+                                     env=env,
+                                     cwd=cwd,
+                                     universal_newlines=False)
+            else:
+                p = subprocess.Popen(command,
+                                     stdout=tmp_stdout,
+                                     stderr=tmp_stderr,
+                                     env=env,
+                                     cwd=cwd,
+                                     universal_newlines=False,
+                                     shell=True)
+            status = p.wait()
+
+            if get_stdout:
+                tmp_stdout.flush()
+                tmp_stdout.seek(0)
+                out = tmp_stdout.read()
+            else:
+                out = None
+
+            if get_stderr:
+                tmp_stderr.flush()
+                tmp_stderr.seek(0)
+                err = tmp_stderr.read()
+            else:
+                err = None
+
+    logger.info('Command {} returned code: {}'.format(command, status))
     return status, out, err
 
 
@@ -146,6 +200,7 @@ def pre_request():
     global FM
     FM.sync()
 
+
 HTTP_OK = 200
 HTTP_BAD_REQUEST = 400
 HTTP_INTERNAL_SERVER_ERROR = 500
@@ -156,6 +211,7 @@ def error_response(message, status_code=HTTP_INTERNAL_SERVER_ERROR):
     response = jsonify({'message': message})
     response.status_code = status_code
     return response
+
 
 def bad_request(message):
     return error_response(message=message, status_code=HTTP_BAD_REQUEST)
@@ -268,8 +324,8 @@ def init():
                     INPUT_FORMATS.append(format_name)
 
 
-        #for i in FORMAT_INFO.values():
-        #    logger.info(i)
+                    # for i in FORMAT_INFO.values():
+                    #    logger.info(i)
 
     except OSError as e:
         logger.exception("Could not run assimp")
@@ -287,7 +343,7 @@ def root():
 @app.route("/viewer", methods=['GET'])
 def viewer():
     return redirect(url_for('static', filename='WebGLViewer/index.html', **request.args))
-    #return redirect(url_for('static', filename='Online3DViewer/website/index.html'))
+    # return redirect(url_for('static', filename='Online3DViewer/website/index.html'))
 
 
 @app.route("/api/hash/<hash>", methods=["GET"])
@@ -397,7 +453,7 @@ def ldr_convert(input_file, output_file):
 
     commandline = args
     try:
-        status, out, err = run_command(commandline, env=env, cwd=FM.tmp_folder)
+        status, out, err = run_command2(commandline, env=env, cwd=FM.tmp_folder)
     except OSError as e:
         message = 'Could not execute command line "{}" in directory "{}": {}'.format(
             ' '.join(commandline), FM.tmp_folder, e)
@@ -417,7 +473,7 @@ def assimp_convert(input_file, output_file):
 
     commandline = args
     try:
-        status, out, err = run_command(commandline, cwd=FM.tmp_folder)
+        status, out, err = run_command2(commandline, cwd=FM.tmp_folder)
     except OSError as e:
         message = 'Could not execute command line "{}" in directory "{}": {}'.format(
             ' '.join(commandline), FM.tmp_folder, e)
