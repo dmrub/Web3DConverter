@@ -1,6 +1,7 @@
 # Initialization
 from __future__ import print_function
 import sys
+import time
 import hashlib
 import mimetypes
 import os
@@ -124,6 +125,12 @@ def run_command2(command, env=None, cwd=None, get_stdout=True, get_stderr=True):
 
 class CustomJSONEncoder(JSONEncoder):
     def default(self, obj):
+        if isinstance(obj, ConversionTask):
+            return {'hash': obj.result_hash if obj.is_finished() else None,
+                    'taskFinished': obj.is_finished(),
+                    'taskStatus': obj.get_status(),
+                    'taskAge': obj.age,
+                    'taskId': obj.task_id}
         return JSONEncoder.default(self, obj)
 
 
@@ -159,9 +166,10 @@ class FileManager(object):
         self.lock = threading.RLock()
 
     def remove_later(self, filename):
-        with self.lock:
-            logger.info('Remove later {}'.format(filename))
-            self.remove_files.append(filename)
+        if filename:
+            with self.lock:
+                logger.info('Remove later {}'.format(filename))
+                self.remove_files.append(filename)
 
     def sync(self):
         with self.lock:
@@ -177,6 +185,98 @@ class FileManager(object):
 
     def __del__(self):
         self.sync()
+
+
+class Task(object):
+    def __init__(self, task_id):
+        self._lock = threading.RLock()
+        self._task_id = task_id
+        self._ts = time.time()
+
+    @property
+    def lock(self):
+        return self._lock
+
+    @property
+    def task_id(self):
+        return self._task_id
+
+    @property
+    def timestamp(self):
+        with self._lock:
+            return self._ts
+
+    @property
+    def age(self):
+        with self._lock:
+            return time.time() - self._ts
+
+    def touch(self):
+        with self._lock:
+            self._ts = time.time()
+
+    def is_expired(self, max_sec=10 * 60):
+        with self._lock:
+            diff = time.time() - self._ts
+            return diff > max_sec
+
+    def is_finished(self):
+        return True
+
+    def is_started(self):
+        return False
+
+    def is_alive(self):
+        return False
+
+    def destroy(self):
+        pass
+
+
+class TaskManager(object):
+    def __init__(self):
+        self._lock = threading.RLock()
+        self._tasks = {}
+
+    @property
+    def lock(self):
+        return self._lock
+
+    def get_task(self, id):
+        with self._lock:
+            return self._tasks.get(id)
+
+    def set_task(self, id, task):
+        with self._lock:
+            self._tasks[id] = task
+
+    def get_or_set_task(self, new_task):
+        with self._lock:
+            task = self._tasks.get(new_task.task_id)
+            if task is None:
+                task = new_task
+                self._tasks[new_task.task_id] = new_task
+            return task
+
+    def del_task(self, task_or_id, destroy=True):
+        with self._lock:
+            task_id = task_or_id.task_id if isinstance(task_or_id, Task) else task_or_id
+            task = self._tasks.get(task_id)
+            if task:
+                del self._tasks[task_id]
+                if destroy:
+                    task.destroy()
+
+    def del_expired_tasks(self, destroy=True):
+        with self._lock:
+            expired = []
+            for task in six.itervalues(self._tasks):
+                if task.is_expired():
+                    expired.append(task)
+            for task in expired:
+                del self._tasks[task.task_id]
+                if destroy:
+                    task.destroy()
 
 
 def hash_file(filename):
@@ -197,8 +297,9 @@ def pre_first_request():
 
 @app.before_request
 def pre_request():
-    global FM
+    global FM, TM
     FM.sync()
+    TM.del_expired_tasks()
 
 
 HTTP_OK = 200
@@ -259,12 +360,14 @@ LDRCONVERTER_OUTPUT_FORMATS = set(('3ds',))
 
 # Application initialization
 FM = None
+TM = None
 
 
 def init():
-    global FM, INPUT_FORMATS, OUTPUT_FORMATS
+    global FM, TM, INPUT_FORMATS, OUTPUT_FORMATS
 
     FM = FileManager(app.config["FILE_FOLDER"])
+    TM = TaskManager()
 
     try:
         status, out, err = run_command([app.config["ASSIMP"], 'listexport'], cwd=FM.tmp_folder)
@@ -332,42 +435,6 @@ def init():
         have_assimp = False
 
 
-@app.route("/", methods=['GET'])
-def root():
-    return render_template("index.html",
-                           FORMAT_INFO=FORMAT_INFO,
-                           INPUT_FORMATS=INPUT_FORMATS,
-                           OUTPUT_FORMATS=OUTPUT_FORMATS)
-
-
-@app.route("/viewer", methods=['GET'])
-def viewer():
-    return redirect(url_for('static', filename='WebGLViewer/index.html', **request.args))
-    # return redirect(url_for('static', filename='Online3DViewer/website/index.html'))
-
-
-@app.route("/api/hash/<hash>", methods=["GET"])
-def get_file_by_hash(hash):
-    global FM
-
-    fentry = FM.fdb.get(hash)
-    if fentry is None:
-        abort(404)
-
-    attachment_filename = fentry.get('filename', hash)
-
-    file_path = fentry.path
-    head, tail = os.path.split(file_path)
-
-    @after_this_request
-    def cleanup(response):
-        FM.remove_later(fentry)
-        return response
-
-    # Send file back
-    return send_from_directory(head, tail, as_attachment=True, attachment_filename=attachment_filename)
-
-
 class FileGuard(object):
     def __init__(self, fd, name):
         self.fd = fd
@@ -433,12 +500,23 @@ class ConversionError(Exception):
 
 
 @app.errorhandler(ConversionError)
-def conversion_error(error):
+def on_conversion_error(error):
     if error.oserror is not None:
         status = HTTP_INTERNAL_SERVER_ERROR
     else:
         status = HTTP_BAD_REQUEST
     return error_response(error.message, status)
+
+
+class BadRequestError(Exception):
+    def __init__(self, message):
+        self.message = message
+        super(BadRequestError, self).__init__(message)
+
+
+@app.errorhandler(BadRequestError)
+def on_bad_request_error(error):
+    return bad_request(error.message)
 
 
 def ldr_convert(input_file, output_file):
@@ -485,10 +563,279 @@ def assimp_convert(input_file, output_file):
     return output_file
 
 
+class ConversionTask(Task):
+    def __init__(self,
+                 uri=None,
+                 uri_path=None,
+                 data=None,
+                 input_format_name=None,
+                 input_format=None,
+                 output_format_name=None,
+                 output_format=None,
+                 get_hash=False):
+        super(ConversionTask, self).__init__(
+            self.compute_id(input_format_name=input_format_name,
+                            output_format_name=output_format_name,
+                            uri=uri,
+                            data=data))
+        self._thread = None
+        self._error = None
+        self._status = None
+
+        self.uri = uri
+        self.uri_path = uri_path
+        self.data = data
+        self.input_format_name = input_format_name
+        self.input_format = input_format
+        self.output_format_name = output_format_name
+        self.output_format = output_format
+        self.get_hash = get_hash
+
+        self.result_hash = None
+        self.result_file_name = None
+
+    @staticmethod
+    def compute_id(input_format_name, output_format_name, uri, data):
+        hasher = hashlib.sha1()
+        hasher.update(input_format_name)
+        hasher.update(b'\0')
+        hasher.update(output_format_name)
+        hasher.update(b'\0')
+        if uri:
+            hasher.update('uri')
+            hasher.update(b'\0')
+            hasher.update(uri)
+        elif data:
+            hasher.update('data')
+            hasher.update(b'\0')
+            hasher.update(data)
+        return hasher.hexdigest()
+
+    def set_error(self, error):
+        with self._lock:
+            self._error = error
+
+    def get_error(self):
+        with self._lock:
+            return self._error
+
+    def raise_error(self):
+        with self._lock:
+            if self._error:
+                raise self._error
+
+    def set_status(self, status):
+        with self._lock:
+            self._status = status
+
+    def get_status(self):
+        with self._lock:
+            return self._status
+
+    def start(self):
+        with self._lock:
+            if not self._thread:
+                self._thread = threading.Thread(target=self._run)
+                self._thread.daemon = 1
+                self._thread.start()
+            self.touch()
+
+    def is_started(self):
+        with self._lock:
+            return self._thread is not None
+
+    def is_finished(self):
+        with self._lock:
+            return self._thread is not None and not self._thread.isAlive()
+
+    def is_alive(self):
+        with self._lock:
+            return self._thread is not None and self._thread.isAlive()
+
+    def is_expired(self, max_sec=10 * 60):
+        if not self.is_finished():
+            return False
+        return super(ConversionTask, self).is_expired(max_sec)
+
+    def stop(self, timeout=None):
+        with self._lock:
+            thread = self._thread
+        if thread:
+            thread.join(timeout=timeout)
+            self.touch()
+            return thread.isAlive()
+        return True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
+
+    def _run(self):
+        global FM
+
+        if self.uri_path:
+            head, tail = os.path.split(self.uri_path)
+            prefix, suffix = os.path.splitext(tail)
+        else:
+            prefix = 'output'
+            suffix = self.input_format.ext
+
+        with FileGuard.mkstemp(dir=FM.tmp_folder, prefix=prefix, suffix=suffix) as input_file:
+
+            if self.uri:
+                logger.info("Download URI {} to file {}".format(self.uri, input_file.name))
+                self.set_status('Downloading URI: {}'.format(self.uri))
+
+                try:
+                    response = requests.get(self.uri, stream=True)
+                except requests.RequestException as e:
+                    logger.exception("HTTP Request Error")
+                    self.set_error(BadRequestError("HTTP Request Error: {}".format(e)))
+                    return
+
+                try:
+                    with input_file.open('wb') as file:
+                        for block in response.iter_content(1024):
+                            file.write(block)
+                        file.flush()
+                except requests.HTTPError as e:
+                    logger.exception("HTTP Error")
+                    self.set_error(BadRequestError("HTTP Error: {}".format(e)))
+                    return
+            elif self.data:
+                with input_file.open('wb') as file:
+                    file.write(self.data)
+
+            msg = "Converting file from format {} to format {}".format(self.input_format.name, self.output_format.name)
+            logger.info(msg)
+            self.set_status(msg)
+
+            use_ldrconverter = self.input_format_name in LDRCONVERTER_INPUT_FORMATS
+            use_assimp_converter = not use_ldrconverter or self.output_format_name not in LDRCONVERTER_OUTPUT_FORMATS
+
+            output_file = FileGuard.mkstemp(dir=FM.tmp_folder, prefix=prefix, suffix=self.output_format.ext)
+            try:
+
+                tmp_file = None
+                try:
+                    if use_ldrconverter:
+                        if self.output_format_name not in LDRCONVERTER_OUTPUT_FORMATS:
+                            tmp_file = FileGuard.mkstemp(dir=FM.tmp_folder, prefix=prefix, suffix='.3ds')
+                            ldr_convert(input_file, tmp_file)
+                            input_file.swap(tmp_file)
+                        else:
+                            ldr_convert(input_file, output_file)
+
+                    if use_assimp_converter:
+                        assimp_convert(input_file, output_file)
+
+                finally:
+                    if tmp_file:
+                        tmp_file.close()
+
+                if self.get_hash:
+                    hash = hash_file(output_file.name)
+                    output_file.close_descriptor()
+                    fentry = FM.fdb.get_or_create(hash, move_from=output_file.name,
+                                                  data={'filename': prefix + self.output_format.ext})
+                    output_file.release()
+                    self.result_hash = hash
+                    return
+                else:
+                    self.result_file_name = output_file.release()
+
+            finally:
+                output_file.close()
+                if self.get_error():
+                    self.set_status('Conversion failed')
+                else:
+                    self.set_status('Conversion succeeded')
+
+        def destroy(self):
+            global FM
+
+            if self.result_hash:
+                fentry = FM.fdb.get(self.result_hash)
+                FM.remove_later(fentry)
+
+            if self.result_file_name:
+                FM.remove_later(self.result_file_name)
+
+
+@app.route("/", methods=['GET'])
+def root():
+    return render_template("index.html",
+                           FORMAT_INFO=FORMAT_INFO,
+                           INPUT_FORMATS=INPUT_FORMATS,
+                           OUTPUT_FORMATS=OUTPUT_FORMATS)
+
+
+@app.route("/viewer", methods=['GET'])
+def viewer():
+    return redirect(url_for('static', filename='WebGLViewer/index.html', **request.args))
+    # return redirect(url_for('static', filename='Online3DViewer/website/index.html'))
+
+
+@app.route("/api/hash/<hash>", methods=["GET"])
+def get_file_by_hash(hash):
+    global FM
+
+    fentry = FM.fdb.get(hash)
+    if fentry is None:
+        abort(404)
+
+    attachment_filename = fentry.get('filename', hash)
+
+    file_path = fentry.path
+    head, tail = os.path.split(file_path)
+
+    # Send file back
+    return send_from_directory(head, tail, as_attachment=True, attachment_filename=attachment_filename)
+
+
+@app.route("/api/task/<task_id>", methods=["GET"])
+def get_task_status(task_id):
+    global TM, FM
+
+    conv_task = TM.get_task(task_id)
+    if conv_task is None:
+        abort(404)
+
+    if conv_task.is_finished():
+        conv_task.touch()
+        conv_task.stop()
+        conv_task.raise_error()
+
+    return jsonify(conv_task)
+
+
+@app.route("/api/debug/tasks", methods=["GET"])
+def debug_get_tasks():
+    global TM
+    result = []
+    with TM.lock:
+        for task in six.itervalues(TM._tasks):
+            status = None
+            task_get_status = getattr(task, 'get_status')
+            if callable(task_get_status):
+                status = task_get_status()
+            result.append({'hash': getattr(task, 'result_hash', None),
+                           'taskTimestamp': task.timestamp,
+                           'filename': getattr(task, 'result_file_name', None),
+                           'taskFinished': task.is_finished(),
+                           'taskExpired': task.is_expired(),
+                           'taskAge': task.age,
+                           'taskStatus': status,
+                           'taskId': task.task_id})
+
+    return jsonify(result)
+
+
 @app.route("/api/convert/<input_format_name>/<output_format_name>", methods=["GET", "POST"])
 def convert(input_format_name, output_format_name):
-    global FM
-    global FORMAT_INFO
+    global FM, FORMAT_INFO, TM
 
     uri = None
     uri_path = None
@@ -521,85 +868,40 @@ def convert(input_format_name, output_format_name):
     if not output_format:
         return bad_request('Unsupported destination format {}'.format(output_format_name))
 
-    get_hash = request.args.get('get_hash', None) in ('1', 'true')
-
-    if uri_path:
-        head, tail = os.path.split(uri_path)
-        prefix, suffix = os.path.splitext(tail)
-    else:
-        prefix = 'output'
-        suffix = input_format.ext
-
-    with FileGuard.mkstemp(dir=FM.tmp_folder, prefix=prefix, suffix=suffix) as input_file:
-
-        if uri:
-            logger.info("Download URI {} to file {}".format(uri, input_file.name))
-
-            try:
-                response = requests.get(uri, stream=True)
-            except requests.RequestException as e:
-                logger.exception("HTTP Request Error")
-                return bad_request("HTTP Request Error: {}".format(e))
-
-            try:
-                with input_file.open('wb') as file:
-                    for block in response.iter_content(1024):
-                        file.write(block)
-                    file.flush()
-            except requests.HTTPError as e:
-                logger.exception("HTTP Error")
-                return bad_request("HTTP Error: {}".format(e))
-        elif data:
-            with input_file.open('wb') as file:
-                file.write(data)
-
-        logger.info("Converting file from format {} to format {}".format(input_format.name, output_format.name))
-
-        use_ldrconverter = input_format_name in LDRCONVERTER_INPUT_FORMATS
-        use_assimp_converter = not use_ldrconverter or output_format_name not in LDRCONVERTER_OUTPUT_FORMATS
-
-        output_file = FileGuard.mkstemp(dir=FM.tmp_folder, prefix=prefix, suffix=output_format.ext)
+    as_task = request.args.get('as_task', None) in ('1', 'true')
+    get_hash = as_task or (request.args.get('get_hash', None) in ('1', 'true'))
+    timeout = request.args.get('timeout', None)
+    if timeout is not None:
         try:
+            timeout = float(timeout)
+        except ValueError:
+            return bad_request('Invalid timeout parameter: {}'.format(timeout))
+        if timeout <= 0:
+            timeout = None
 
-            tmp_file = None
-            try:
-                if use_ldrconverter:
-                    if output_format_name not in LDRCONVERTER_OUTPUT_FORMATS:
-                        tmp_file = FileGuard.mkstemp(dir=FM.tmp_folder, prefix=prefix, suffix='.3ds')
-                        ldr_convert(input_file, tmp_file)
-                        input_file.swap(tmp_file)
-                    else:
-                        ldr_convert(input_file, output_file)
+    conv_task = TM.get_or_set_task(ConversionTask(uri=uri,
+                                                  uri_path=uri_path,
+                                                  data=data,
+                                                  input_format_name=input_format_name,
+                                                  input_format=input_format,
+                                                  output_format_name=output_format_name,
+                                                  output_format=output_format,
+                                                  get_hash=get_hash))
+    conv_task.start()
 
-                if use_assimp_converter:
-                    assimp_convert(input_file, output_file)
+    if as_task:
+        if conv_task.is_finished():
+            conv_task.touch()
+            conv_task.stop()
 
-            finally:
-                if tmp_file:
-                    tmp_file.close()
+        return jsonify(conv_task)
+    else:
+        conv_task.stop()
+        conv_task.raise_error()
 
-            if get_hash:
-                hash = hash_file(output_file.name)
-                output_file.close_descriptor()
-                fentry = FM.fdb.get_or_create(hash, move_from=output_file.name,
-                                              data={'filename': prefix + output_format.ext})
-                output_file.release()
-                return jsonify({'hash': hash})
-            else:
-                head, tail = os.path.split(output_file.name)
-                file_for_removal = output_file.release()
-
-                @after_this_request
-                def cleanup(response):
-                    FM.remove_later(file_for_removal)
-                    return response
-
-                # Send file back
-                return send_from_directory(head, tail, as_attachment=True)
-        finally:
-            output_file.close()
-
-    return error_response(
-        message='Error: Conversion from {} format to {} format is unsupported'.format(input_format.name,
-                                                                                      output_format.name),
-        status_code=HTTP_NOT_IMPLEMENTED)
+        if conv_task.result_file_name:
+            head, tail = os.path.split(conv_task.result_file_name)
+            # Send file back
+            return send_from_directory(head, tail, as_attachment=True)
+        else:
+            return jsonify(conv_task)
