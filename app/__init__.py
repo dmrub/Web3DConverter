@@ -902,7 +902,7 @@ def convert(input_format_name, output_format_name):
 
 
 @app.route("/api/debug/flask", methods=["GET"])
-def list_routes():
+def debug_flask():
     import urllib
 
     output = []
