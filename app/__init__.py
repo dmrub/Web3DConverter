@@ -9,11 +9,13 @@ import shutil
 import threading
 import subprocess
 import tempfile
+import pprint
 
 import requests
-from flask import Flask, redirect, url_for, render_template, jsonify, request, \
+from flask import Flask, Response, redirect, url_for, render_template, jsonify, request, \
     send_from_directory, abort, after_this_request
 from flask.json import JSONEncoder
+from flask_reverse_proxy import ReverseProxied
 import six
 from six.moves.urllib.parse import urlparse
 from werkzeug.utils import secure_filename
@@ -21,24 +23,13 @@ from filedb import FileDB, FileEntry
 from crossdomain import crossdomain
 
 mimetypes.init()
-
-extensions = {
-    '.cpp': 'cpp',
-    '.hpp': 'cpp',
-    '.h++': 'cpp',
-    '.c++': 'cpp',
-    '.cc': 'cpp',
-    '.hh': 'cpp',
-    '.h': 'c',
-    '.c': 'c',
-    '.java': 'java',
-    '.py': 'python',
-    '.sh': 'bash',
-    '.css': 'css',
-    '.cs': 'csharp',
-    '.html': 'html',
-    '.htm': 'html'
-}
+# Fill mimetypes with common types for the case /etc/mime.types is missing
+mimetypes.add_type('image/svg+xml', '.svg')
+mimetypes.add_type('image/svg+xml', '.svgz')
+mimetypes.add_type('image/png', '.png')
+mimetypes.add_type('image/gif', '.gif')
+mimetypes.add_type('image/jpeg', '.jpg')
+mimetypes.add_type('image/jpeg', '.jpeg')
 
 
 def run_command(command, env=None, cwd=None):
@@ -137,6 +128,7 @@ class CustomJSONEncoder(JSONEncoder):
 
 # create application
 app = Flask(__name__, instance_relative_config=True)
+app.wsgi_app = ReverseProxied(app.wsgi_app)
 app.json_encoder = CustomJSONEncoder
 
 logger = app.logger
@@ -907,3 +899,31 @@ def convert(input_format_name, output_format_name):
             return send_from_directory(head, tail, as_attachment=True)
         else:
             return jsonify(conv_task)
+
+
+@app.route("/api/debug/flask", methods=["GET"])
+def list_routes():
+    import urllib
+
+    output = []
+    output.append('Rules:')
+    for rule in app.url_map.iter_rules():
+
+        options = {}
+        for arg in rule.arguments:
+            options[arg] = "[{0}]".format(arg)
+
+        if rule.methods:
+            methods = ','.join(rule.methods)
+        else:
+            methods = 'GET'
+        url = url_for(rule.endpoint, **options)
+        line = urllib.unquote("{:50s} {:20s} {}".format(rule.endpoint, methods, url))
+        output.append(line)
+
+    output.append('')
+    output.append('Request environment:')
+    for k, v in six.iteritems(request.environ):
+        output.append("{0}: {1}".format(k, pprint.pformat(v, depth=5)))
+
+    return Response('\n'.join(output), mimetype='text/plain')
