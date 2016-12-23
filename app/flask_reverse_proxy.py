@@ -30,7 +30,11 @@ class ReverseProxied(object):
             environ['SCRIPT_NAME'] = script_name
             path_info = environ.get('PATH_INFO', '')
             if path_info and path_info.startswith(script_name):
-                environ['PATH_INFO'] = path_info[len(script_name):]
+                new_path_info = path_info[len(script_name):]
+                # add trailing slash when it was already present
+                if path_info.endswith('/') and not new_path_info.endswith('/'):
+                    new_path_info += '/'
+                environ['PATH_INFO'] = new_path_info
 
         scheme = environ.get('HTTP_X_SCHEME', '')
         if scheme:
