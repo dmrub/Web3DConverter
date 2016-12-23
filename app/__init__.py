@@ -18,6 +18,7 @@ import six
 from six.moves.urllib.parse import urlparse
 from werkzeug.utils import secure_filename
 from filedb import FileDB, FileEntry
+from crossdomain import crossdomain
 
 mimetypes.init()
 
@@ -779,6 +780,7 @@ def viewer():
 
 
 @app.route("/api/hash/<hash>", methods=["GET"])
+@crossdomain(origin='*')
 def get_file_by_hash(hash):
     global FM
 
