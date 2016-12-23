@@ -338,14 +338,14 @@
         }
     }
 
-    function viewCompleteHandler(data) {
+    function viewCompleteHandler(data, textStatus, jqXHR) {
         ProgressModal.hide();
-        if (data.responseJSON && data.responseJSON.hash) {
+        if (data && data.hash) {
 
             $('#viewer-iframe').on('load', function () {
                 //this.style.height=this.contentDocument.body.scrollHeight +'px';
             });
-            $("#viewer-iframe").attr("src", "viewer?uri=../../api/hash/" + data.responseJSON.hash);
+            $("#viewer-iframe").attr("src", "viewer?uri=../../api/hash/" + data.hash);
 
             $('.nav-tabs a[href="#viewer"]').tab('show');
             //var win = window.open("viewer?uri=../../api/hash/" + data.hash, '_blank');
@@ -353,6 +353,7 @@
             return;
         }
 
+        /*
         var editor = $('#editor').data('CodeMirrorInstance');
         editor.setOption("mode", "text/plain");
         //if (exportFormat=="json-ld" || exportFormat=="rdf-json")
@@ -360,14 +361,16 @@
         //else
         editor.getDoc().setValue(data);
         editor.refresh();
+        */
     }
 
-    function convertCompleteHandler(data) {
+    function convertCompleteHandler(data, textStatus, jqXHR) {
         ProgressModal.hide();
-        if (data.responseJSON && data.responseJSON.hash) {
-            window.location = "api/hash/" + data.responseJSON.hash;
+        if (data && data.hash) {
+            window.location = "api/hash/" + data.hash;
             return;
         }
+        /*
         $('.nav-tabs a[href="#menu2"]').tab('show');
         var editor = $('#editor').data('CodeMirrorInstance');
         editor.setOption("mode", "text/plain");
@@ -376,6 +379,38 @@
         //else
         editor.getDoc().setValue(data);
         editor.refresh();
+        */
+    }
+
+    function taskUpdateHandler(data, textStatus, jqXHR) {
+        if (data) {
+            if (data.taskStatus && jQuery.type(data.taskStatus) === "string") {
+                ProgressModal.show(data.taskStatus, 100);
+            }
+
+            if (data.taskFinished) {
+                ProgressModal.hide();
+                if (data.hash)
+                    return this.nextHandler(data, textStatus, jqXHR);
+            }
+            if (data.taskId) {
+                $.ajax({
+                            url: "api/task/" + data.taskId,
+                            method: "GET",
+                            dataType: "json",
+                            success: taskUpdateHandler,
+                            progress: progressHandler,
+                            error: errorHandler,
+                            nextHandler: this.nextHandler
+                        }
+                );
+            } else {
+                alertModal("Internal Error", "Missing task ID in response");
+            }
+        } else {
+            ProgressModal.hide();
+            alertModal("Internal Error", "Missing task response data");
+        }
     }
 
     var actionMode = null;
@@ -390,24 +425,26 @@
         var exportFormat = $("#exportFormatByURI").val();
         var inputURI = $("#inputUri").val();
 
-        var completeHandler;
+        var nextHandler;
         if (doViewScene) {
             ProgressModal.show("Converting to viewable format", 4);
             exportFormat = "dae";
-            completeHandler = viewCompleteHandler;
+            nextHandler = viewCompleteHandler;
         } else {
             ProgressModal.show("Converting URI", 4);
-            completeHandler = convertCompleteHandler;
+            nextHandler = convertCompleteHandler;
         }
 
         $.ajax({
-                    url: "api/convert/" + importFormat + "/" + exportFormat + "?get_hash=true&uri=" + inputURI,
+                    url: "api/convert/" + importFormat + "/" + exportFormat + "?as_task=true&uri=" + inputURI,
                     method: "GET",
                     dataType: "json",
-                    complete: completeHandler,
-                    progress: progressHandler
+                    success: taskUpdateHandler,
+                    progress: progressHandler,
+                    error: errorHandler,
+                    nextHandler: nextHandler
                 }
-        ).fail(errorHandler);
+        );
     });
 
     $("#convertByPOST").submit(function (event) {
@@ -419,26 +456,28 @@
         var importFormat = $("#inputFormatByText").val();
         var exportFormat = $("#exportFormatByText").val();
 
-        var completeHandler;
+        var nextHandler;
         if (doViewScene) {
             ProgressModal.show("Converting to viewable format", 4);
             exportFormat = "dae";
-            completeHandler = viewCompleteHandler;
+            nextHandler = viewCompleteHandler;
         } else {
             ProgressModal.show("Converting text", 4);
-            completeHandler = convertCompleteHandler;
+            nextHandler = convertCompleteHandler;
         }
 
         $.ajax({
-                url: "api/convert/" + importFormat + "/" + exportFormat + "?get_hash=true",
+                url: "api/convert/" + importFormat + "/" + exportFormat + "?as_task=true",
                 method: "POST",
                 dataType: "json",
                 contentType: "text/plain",
                 data: $("#textarea").val(),
-                complete: completeHandler,
-                progress: progressHandler
+                success: completeHandler,
+                progress: progressHandler,
+                error: errorHandler,
+                nextHandler: nextHandler
             }
-        ).fail(errorHandler);
+        );
     });
 
 

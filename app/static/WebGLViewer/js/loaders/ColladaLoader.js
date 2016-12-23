@@ -66,6 +66,13 @@ THREE.ColladaLoader = function () {
 
 			request.onreadystatechange = function() {
 
+				if (request.response || request.responseText) {
+					console.log("Response length: "+request.response.length);
+					console.log("Response text length: "+request.responseText.length);
+					console.log("Max: "+request.getResponseHeader( "Content-Length" ));
+				}
+
+
 				if ( request.readyState === 4 ) {
 
 					if ( request.status === 0 || request.status === 200 ) {
@@ -121,7 +128,15 @@ THREE.ColladaLoader = function () {
 
 			};
 
+			request.onload = function() {
+				if (( request.status === 0 || request.status === 200 ) && request.response) {
+					readyCallbackFunc = readyCallback;
+					parse( request.response, undefined, url );
+				}
+			};
+
 			request.open( "GET", url, true );
+			request.overrideMimeType("text/plain; charset=x-user-defined");
 			request.send( null );
 
 		} else {

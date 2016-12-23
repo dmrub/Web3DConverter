@@ -120,6 +120,8 @@
     Viewer.init();
 
     var queryParams = URI.parseQuery(window.location.search);
+    console.log("Window location search: "+window.location.search);
+    console.log("Load URI: "+queryParams.uri);
     if (queryParams.uri) {
         Viewer.ProgressModal.show("Loading scene ...", 4);
         Viewer.loadCollada(queryParams.uri, {
