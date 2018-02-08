@@ -3,6 +3,6 @@
 Flask
 itsdangerous
 six
-rocket
+git+https://github.com/dmrub/rocket
 requests
 fasteners
