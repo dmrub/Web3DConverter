@@ -1,9 +1,9 @@
 #!/bin/bash
 
-THIS_DIR=$(dirname "$(readlink -f "$BASH_SOURCE")")
+THIS_DIR=$( (cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P) )
 
 error() {
-    echo >&2 "* Error: $@"
+    echo >&2 "* Error: $*"
 }
 
 fatal() {

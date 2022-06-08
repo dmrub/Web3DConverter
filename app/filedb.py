@@ -9,8 +9,10 @@ import threading
 import json
 import six
 import shutil
-from utils import obj_merge
-
+try:
+    from .utils import obj_merge
+except:
+    from utils import obj_merge
 
 class FileEntry(object):
     def __init__(self, fdb, name, data=None, move_from=None, copy_from=None):

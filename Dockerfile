@@ -1,12 +1,14 @@
-FROM ubuntu:14.04
-MAINTAINER Dmitri Rubinstein <dmitri.rubinstein@dfki.de>
+FROM ubuntu:20.04
+LABEL org.opencontainers.image.authors="Dmitri Rubinstein <dmitri.rubinstein@dfki.de>"
 
-RUN DEBIAN_FRONTEND=noninteractive apt-get update -y && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    build-essential cmake pkg-config zlib1g-dev \
-    libpng-dev libjpeg-dev libboost-thread-dev curl unzip \
-    python python-pip && \
-    pip install --upgrade pip
+RUN set -xe; \
+    export DEBIAN_FRONTEND=noninteractive; \
+    apt-get update -y; \
+    apt-get install -y --no-install-recommends \
+        build-essential git cmake pkg-config zlib1g-dev \
+        libpng-dev libjpeg-dev libboost-thread-dev curl unzip \
+        python3 python3-pip; \
+    pip install --upgrade pip;
 
 # Prepare development environment
 
@@ -24,10 +26,11 @@ RUN cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr CMakeLists.txt -G 'Unix Makefiles' &&
 # Download ldraw to /usr/share/ldraw
 
 COPY download-ldraw-lib.sh /tmp/ldcad/download-ldraw-lib.sh
-RUN chmod +x /tmp/ldcad/download-ldraw-lib.sh && \
-    mkdir -p /usr/share && \
-    cd /usr/share && \
-    /tmp/ldcad/download-ldraw-lib.sh && \
+RUN set -xe;  \
+    chmod +x /tmp/ldcad/download-ldraw-lib.sh; \
+    mkdir -p /usr/share; \
+    cd /usr/share; \
+    /tmp/ldcad/download-ldraw-lib.sh; \
     rm /tmp/ldcad/download-ldraw-lib.sh
 
 ENV LDRAWDIR=/usr/share/ldraw

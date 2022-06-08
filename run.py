@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
     Web3DConverter
@@ -11,7 +11,7 @@
     :license: GPL, see LICENSE for more details
 """
 
-from __future__ import print_function
+
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -105,6 +105,7 @@ if __name__ == "__main__":
             n, v = values.split('=')
             setattr(namespace, n, v)
 
+
     print(sys.argv, file=sys.stderr)
 
     parser = argparse.ArgumentParser(
@@ -130,7 +131,8 @@ if __name__ == "__main__":
     parser.add_argument("--use-reloader", action="store_true",
                         help="enable reloader")
     parser.add_argument("--config-var", metavar="VAR=VALUE", action=AppendKeyValue,
-                        help="set configuration variable: "+", ".join(["{}".format(k) for k in app.app.config.keys()]))
+                        help="set configuration variable: " + ", ".join(
+                            ["{}".format(k) for k in list(app.app.config.keys())]))
     parser.add_argument("--version", action="version",
                         version="%(prog)s 0.2")
     # parser.add_argument("args", nargs="*", help=argparse.SUPPRESS)
@@ -165,13 +167,13 @@ if __name__ == "__main__":
 
     if args.debug:
         # None, , 'werkzeug'
-        set_loggers_level((None, app.logger, ), logging.DEBUG)
+        set_loggers_level((None, app.logger,), logging.DEBUG)
 
     logger.info('Environment:')
-    for k, v in os.environ.iteritems():
+    for k, v in os.environ.items():
         logger.info('%s = %r' % (k, v))
     logger.info('Configuration:')
-    for k, v in app.app.config.iteritems():
+    for k, v in app.app.config.items():
         logger.info('%s = %r' % (k, v))
     msg = 'app path: "%s"' % (app.app.instance_path)
     logger.info(msg)
@@ -181,6 +183,7 @@ if __name__ == "__main__":
     app.init()
 
     logger.info('Starting application')
+    logger.info('Port: %d', args.port)
 
     import warnings
 
@@ -206,7 +209,6 @@ if __name__ == "__main__":
 
 
             # Start the Rocket web server
-
             def rocket_signal_term_handler(signal, frame):
                 logger.info('Got signal {}, exiting'.format(signal))
                 try:
@@ -226,9 +228,11 @@ if __name__ == "__main__":
 
             from werkzeug.serving import WSGIRequestHandler
 
+
             class CustomRequestHandler(WSGIRequestHandler):
                 def connection_dropped(self, error, environ=None):
                     print('dropped {} {}'.format(error, environ))
+
 
             app.app.run(debug=args.debug,
                         host=args.host,

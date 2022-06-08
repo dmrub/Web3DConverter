@@ -1,5 +1,5 @@
 # Initialization
-from __future__ import print_function
+
 import sys
 import time
 import hashlib
@@ -15,12 +15,12 @@ import requests
 from flask import Flask, Response, redirect, url_for, render_template, jsonify, request, \
     send_from_directory, abort, after_this_request
 from flask.json import JSONEncoder
-from flask_reverse_proxy import ReverseProxied
+from .flask_reverse_proxy import ReverseProxied
 import six
 from six.moves.urllib.parse import urlparse
 from werkzeug.utils import secure_filename
-from filedb import FileDB, FileEntry
-from crossdomain import crossdomain
+from .filedb import FileDB, FileEntry
+from .crossdomain import crossdomain
 
 mimetypes.init()
 # Fill mimetypes with common types for the case /etc/mime.types is missing
@@ -32,7 +32,7 @@ mimetypes.add_type('image/jpeg', '.jpg')
 mimetypes.add_type('image/jpeg', '.jpeg')
 
 
-def run_command(command, env=None, cwd=None):
+def run_command(command, env=None, cwd=None, encoding=None):
     """returns triple (returncode, stdout, stderr)"""
     logger.info('Run command {} in env {}, cwd {}'.format(command, env, cwd))
     myenv = {}
@@ -60,12 +60,15 @@ def run_command(command, env=None, cwd=None):
     err = p.stderr.read()
     p.stderr.close()
     status = p.wait()
+    if encoding is not None:
+        out = out.decode(encoding)
+        err = err.decode(encoding)
 
     logger.info('Command {} returned code: {}'.format(command, status))
     return status, out, err
 
 
-def run_command2(command, env=None, cwd=None, get_stdout=True, get_stderr=True):
+def run_command2(command, env=None, cwd=None, get_stdout=True, get_stderr=True, encoding=None):
     """returns triple (returncode, stdout, stderr)
     if get_stdout is False stdout tuple element will be set to None
     if get_stderr is False stderr tuple element will be set to None
@@ -101,6 +104,8 @@ def run_command2(command, env=None, cwd=None, get_stdout=True, get_stderr=True):
                 tmp_stdout.flush()
                 tmp_stdout.seek(0)
                 out = tmp_stdout.read()
+                if encoding is not None:
+                    out = out.decode(encoding)
             else:
                 out = None
 
@@ -108,6 +113,8 @@ def run_command2(command, env=None, cwd=None, get_stdout=True, get_stderr=True):
                 tmp_stderr.flush()
                 tmp_stderr.seek(0)
                 err = tmp_stderr.read()
+                if encoding is not None:
+                    err = err.decode(encoding)
             else:
                 err = None
 
@@ -363,16 +370,15 @@ def init():
     TM = TaskManager()
 
     try:
-        status, out, err = run_command([app.config["ASSIMP"], 'listexport'], cwd=FM.tmp_folder)
+        status, out, err = run_command([app.config["ASSIMP"], 'listexport'], cwd=FM.tmp_folder, encoding='utf-8')
         have_assimp = True
-
         if status == 0:
             export_formats = out.split("\n")
             for export_format in export_formats:
                 export_format = export_format.strip()
                 if not export_format:
                     continue
-                status, out, err = run_command([app.config["ASSIMP"], 'exportinfo', export_format], cwd=FM.tmp_folder)
+                status, out, err = run_command([app.config["ASSIMP"], 'exportinfo', export_format], cwd=FM.tmp_folder, encoding='utf-8')
                 if status == 0:
                     export_format_info = [s.strip() for s in out.split("\n")]
                     if len(export_format_info) >= 3:
@@ -398,7 +404,7 @@ def init():
                         if format_name not in OUTPUT_FORMATS:
                             OUTPUT_FORMATS.append(format_name)
 
-        status, out, err = run_command([app.config["ASSIMP"], 'listext'], cwd=FM.tmp_folder)
+        status, out, err = run_command([app.config["ASSIMP"], 'listext'], cwd=FM.tmp_folder, encoding='utf-8')
         if status == 0:
             import_exts = out.split(';')
             for ext in import_exts:
@@ -590,18 +596,22 @@ class ConversionTask(Task):
     @staticmethod
     def compute_id(input_format_name, output_format_name, uri, data):
         hasher = hashlib.sha1()
+        if not isinstance(input_format_name, bytes):
+            input_format_name = input_format_name.encode()
         hasher.update(input_format_name)
         hasher.update(b'\0')
+        if not isinstance(output_format_name, bytes):
+            output_format_name = output_format_name.encode()
         hasher.update(output_format_name)
         hasher.update(b'\0')
         if uri:
-            hasher.update('uri')
+            hasher.update(b'uri')
             hasher.update(b'\0')
-            hasher.update(uri)
+            hasher.update(uri.encode())
         elif data:
-            hasher.update('data')
+            hasher.update(b'data')
             hasher.update(b'\0')
-            hasher.update(data)
+            hasher.update(data.encode())
         return hasher.hexdigest()
 
     def set_error(self, error):
@@ -639,11 +649,11 @@ class ConversionTask(Task):
 
     def is_finished(self):
         with self._lock:
-            return self._thread is not None and not self._thread.isAlive()
+            return self._thread is not None and not self._thread.is_alive()
 
     def is_alive(self):
         with self._lock:
-            return self._thread is not None and self._thread.isAlive()
+            return self._thread is not None and self._thread.is_alive()
 
     def is_expired(self, max_sec=10 * 60):
         if not self.is_finished():
@@ -656,7 +666,7 @@ class ConversionTask(Task):
         if thread:
             thread.join(timeout=timeout)
             self.touch()
-            return thread.isAlive()
+            return thread.is_alive()
         return True
 
     def __enter__(self):
@@ -873,14 +883,17 @@ def convert(input_format_name, output_format_name):
         if timeout <= 0:
             timeout = None
 
-    conv_task = TM.get_or_set_task(ConversionTask(uri=uri,
-                                                  uri_path=uri_path,
-                                                  data=data,
-                                                  input_format_name=input_format_name,
-                                                  input_format=input_format,
-                                                  output_format_name=output_format_name,
-                                                  output_format=output_format,
-                                                  get_hash=get_hash))
+    try:
+        conv_task = TM.get_or_set_task(ConversionTask(uri=uri,
+                                                    uri_path=uri_path,
+                                                    data=data,
+                                                    input_format_name=input_format_name,
+                                                    input_format=input_format,
+                                                    output_format_name=output_format_name,
+                                                    output_format=output_format,
+                                                    get_hash=get_hash))
+    except Exception as e:
+        logger.exception(e)
     conv_task.start()
 
     if as_task:
@@ -903,7 +916,7 @@ def convert(input_format_name, output_format_name):
 
 @app.route("/api/debug/flask", methods=["GET"])
 def debug_flask():
-    import urllib
+    import urllib.request, urllib.parse, urllib.error
 
     output = []
     output.append('Rules:')
@@ -918,7 +931,7 @@ def debug_flask():
         else:
             methods = 'GET'
         url = url_for(rule.endpoint, **options)
-        line = urllib.unquote("{:50s} {:20s} {}".format(rule.endpoint, methods, url))
+        line = urllib.parse.unquote("{:50s} {:20s} {}".format(rule.endpoint, methods, url))
         output.append(line)
 
     output.append('')

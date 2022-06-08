@@ -167,7 +167,8 @@ define-download-func() {
 define-download-func
 
 ASSIMP_URL=https://github.com/assimp/assimp
-ASSIMP_BRANCH=v3.3.1
+# ASSIMP_BRANCH=v3.3.1
+ASSIMP_BRANCH=v5.2.4
 LDRCONVERTER_URL=https://github.com/dmrub/LDRConverter
 LDRCONVERTER_BRANCH=master
 IMAGE_TAG=webldrconverter
